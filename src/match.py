@@ -43,7 +43,6 @@ class Parser():
 
             cosine = np.dot(self.em, words_embedding)   # number props
             prop = self.id2props[cosine.argmax()]
-            print(prop)
 
             try:
                 _value = re.search(REGXS[prop], value).group(0)  # value regex
@@ -55,7 +54,7 @@ class Parser():
 
 
 if __name__ == '__main__':
-    query = '物料编码包含||20000032大概这样 物料名称哈哈||i18n_0000201673_mid'
+    query = '物料编码包含||20000032大概这样 物料名称哈哈||i18n_0000201673_mid 物料描述||12345上山打老虎'
     P = Parser()
     RES = P.parse(query)
     print(RES)

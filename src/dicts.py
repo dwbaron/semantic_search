@@ -39,6 +39,7 @@ for k, v in dicts_nodes.items():
 
 # 实体属性
 dicts_properties = {
+    'mat_desc': ['物料描述', '物资描述', '物料长描述',['Material']],
     'affiliated_company': ['关联公司', '附属公司', ['Ship']],
     'approval_status': ['审核状态', '批准进度', ['MRQ', 'PR']],
     'arrival_date': ['预计到达时间', '到达时间', '到达日期', ['PR']],
@@ -144,31 +145,6 @@ print('=' * 30)
 print(dicts_props_has_words)
 
 
-word2id = {k: i for i, k in enumerate(WORDS)}
-id2word = {i: k for i, k in enumerate(WORDS)}
-key2id = {k: i for i, k in enumerate(dicts_props_has_words)}
-id2key = {i: k for i, k in enumerate(dicts_props_has_words)}
-
-
-NUM_WORDS = len(WORDS)
-props_embedding = {}
-for k, v in dicts_props_has_words.items():
-    init_row = np.zeros(NUM_WORDS)
-    for vv in v:
-        row = np.zeros(NUM_WORDS)
-        row[word2id[vv]] = 1
-        init_row += row
-    props_embedding[k] = init_row.tolist()
-
-# print(props_embedding['affiliated_company'])
-
-with open('../data/props_embedding.json', 'w') as f:
-    json.dump(props_embedding, f)
-
-with open('../data/words_dicts.json', 'w') as f:
-    json.dump(word2id, f)
-
-
 # 关系对照表
 dicts_preds = [
     ['参考', '查找', '基于', '依赖', '参照', '需要', '需求'],  # 0
@@ -191,6 +167,29 @@ dicts_edges = {
     'required': ['Material', 3, 'BATCH'],
     'ship': ['Transport', 0, 'Ship']  # 单据之间
 }
+
+word2id = {k: i for i, k in enumerate(WORDS)}
+id2word = {i: k for i, k in enumerate(WORDS)}
+key2id = {k: i for i, k in enumerate(dicts_props_has_words)}
+id2key = {i: k for i, k in enumerate(dicts_props_has_words)}
+
+NUM_WORDS = len(WORDS)
+props_embedding = {}
+for k, v in dicts_props_has_words.items():
+    init_row = np.zeros(NUM_WORDS)
+    for vv in v:
+        row = np.zeros(NUM_WORDS)
+        row[word2id[vv]] = 1
+        init_row += row
+    props_embedding[k] = init_row.tolist()
+
+# print(props_embedding['affiliated_company'])
+
+with open('../data/props_embedding.json', 'w') as f:
+    json.dump(props_embedding, f)
+
+with open('../data/words_dicts.json', 'w') as f:
+    json.dump(word2id, f)
 
 
 def combine():
