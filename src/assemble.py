@@ -11,15 +11,18 @@ from neo4j import GraphDatabase
 import logging
 from neo4j.exceptions import ServiceUnavailable
 from src.match import Parser
-from src.dicts import dicts_properties
+from src.dicts import dicts_properties, FULLTEXT, CODES
 import re
 
 
 TEMPLATES = [
-    "match n=({node1}) {where} {returns}",
-    "match p=({node1})-[*2..4]-({node2})-[*2..4]-({node3})-[*2..4]-({node4}) {where} {returns}",
-    "match p=({node1})-[*2..4]-({node2})-[*2..4]-({node3}) {where} {returns}",
-    "match p=({node1})-[*1..4]-({node2}) {where} {returns}"
+    'CALL zdr.index.chineseFulltextIndexSearch("IKAnalyzer", "{prop}:{value}", {num}) YIELD node as {node} with {node} ',  # fulltext search
+    'match p=(n1)-[*2..5]-(n2) ',  # match 2 nodes
+    'match p=(n1)-[*2..5]-(n2)-[*2..5]-(n3) ',  # match 3 nodes
+    'where {conditions} ',  # where conditions
+    'return p limit {num}',  # return path
+    'return {node} limit {num}',  # return node
+    '{fulltext}{matches}{conditions}{returns}'  # full query
 ]
 
 
@@ -31,6 +34,7 @@ class Assemble:
         self.entities = []
         self.wheres = []
         self.no_e = 0  # number of entities
+        self.num = 10
 
     def close(self):
         # Don't forget to close the driver connection when you are finished with it
@@ -50,6 +54,36 @@ class Assemble:
         )
         result = tx.run(query, mname=mname)
         return [row for row in result]
+
+    def str_combine2(self, prev_entity, prev_props, FULL_TEXTS, CONDITIONS, no_e, num=10):
+        _node = prev_entity[0]
+        fulltext = ''
+        conditions = ''
+        for i, pv in enumerate(prev_props):
+            if pv[0] in FULLTEXT:  # 该属性存在长文本，需要用zdr模糊匹配
+                fulltext = TEMPLATES[0].format(
+                    prop=pv[0],
+                    value=pv[1],
+                    num=num,
+                    node='n' + str(no_e)
+                )
+            else:
+                _n = 'n' + str(no_e)
+                if not conditions:
+                    if pv[0] in CODES:
+                        conditions += '{}.{} contains {} '.format(_n, pv[0], pv[1])
+                    else:
+                        conditions += '{}.{} = {} '.format(_n, pv[0], pv[1])
+                else:
+                    conditions += 'AND '
+                    if pv[0] in CODES:
+                        conditions += '{}.{} contains {} '.format(_n, pv[0], pv[1])
+                    else:
+                        conditions += '{}.{} = {} '.format(_n, pv[0], pv[1])
+            FULL_TEXTS.append(fulltext)
+        CONDITIONS.append(conditions)
+        # 重置状态
+        self.has_seen = set()
 
     def str_combine(self, prev_entity, prev_props, entities, wheres, no_e):
         # 遇到重复属性说明实体发生变换
@@ -93,10 +127,14 @@ class Assemble:
 
     def _assemble(self, query):
         RES = self.parser.parse(query)
-        entities = []
         prev_entity = None
         prev_props = []
-        wheres = []
+        # wheres = []
+        # entities = []
+        FULL_TEXTS = []
+        CONDITIONS = []
+        MATCHES = ''
+
         while RES:
             r = RES.pop(0)
             # 当前属性
@@ -121,43 +159,55 @@ class Assemble:
                 # 同一类实体但是属性名称重复，说明是另一个同类实体
                 self.no_e += 1
                 if current_entity == prev_entity or set(prev_entity).issubset(set(current_entity)):
-                    _ = self.str_combine(prev_entity, prev_props[:-1], entities, wheres, self.no_e)
+                    # _ = self.str_combine(prev_entity, prev_props[:-1], entities, wheres, self.no_e)
+                    self.str_combine2(prev_entity, prev_props[:-1], FULL_TEXTS, CONDITIONS, no_e=self.no_e)
                     # 重置状态
                     prev_props = prev_props[-1]
                     if not RES:
                         self.no_e += 1
-                        _ = self.str_combine(current_entity, [prev_props], entities, wheres, self.no_e)
+                        # _ = self.str_combine(current_entity, [prev_props], entities, wheres, self.no_e)
+                        self.str_combine2(prev_entity, [prev_props], FULL_TEXTS, CONDITIONS, no_e=self.no_e)
                     continue
                 else:
                     # 非同一实体，则触发拼接
                     self.no_e += 1
-                    _ = self.str_combine(prev_entity, prev_props[:-1], entities, wheres, self.no_e)
+                    # _ = self.str_combine(prev_entity, prev_props[:-1], entities, wheres, self.no_e)
+                    self.str_combine2(prev_entity, prev_props[:-1], FULL_TEXTS, CONDITIONS, no_e=self.no_e)
                     # 重置状态
                     prev_props = prev_props[-1]
                     prev_entity = current_entity
                     if not RES:
                         self.no_e += 1
-                        _ = self.str_combine(current_entity, [prev_props], entities, wheres, self.no_e)
+                        # _ = self.str_combine(current_entity, [prev_props], entities, wheres, self.no_e)
+                        self.str_combine2(prev_entity, [prev_props], FULL_TEXTS, CONDITIONS, no_e=self.no_e)
                     continue
             if not RES:
                 self.no_e += 1
-                _ = self.str_combine(current_entity, prev_props, entities, wheres, self.no_e)
+                # _ = self.str_combine(current_entity, prev_props, entities, wheres, self.no_e)
+                self.str_combine2(prev_entity, prev_props, FULL_TEXTS, CONDITIONS, no_e=self.no_e)
 
+        if self.no_e == 1:
+            RETURNS = TEMPLATES[5].format(node='n' + str(self.no_e), num=self.num)
+        elif self.no_e == 2:
+            RETURNS = TEMPLATES[4].format(num=self.num)
+            MATCHES = TEMPLATES[1]
+        else:
+            RETURNS = TEMPLATES[4].format(num=self.num)
+            MATCHES = TEMPLATES[2]
+
+        CONDITIONS = TEMPLATES[3].format(conditions='AND '.join(CONDITIONS))
         # print(entities)
         # print(wheres)
-        return entities, wheres
+        full_query = TEMPLATES[-1].format(
+            fulltext=' '.join(FULL_TEXTS),
+            matches=''.join(MATCHES),
+            conditions=CONDITIONS,
+            returns=RETURNS
+        )
 
-    def assemble(self, query):
-        cypher_str = ''
-        self.entities, self.wheres = self._assemble(query)
-        if len(self.entities) == 1:
-            cypher_str = TEMPLATES[0].format(node1=self.entities[0], where=self.wheres[0], returns='return p limit 5')
+        print(full_query)
 
-        elif len(self.entities) == 2:
-            cypher_str = TEMPLATES[3].format(node1=self.entities[0], node2=self.entities[1],
-                                             where=self.wheres[0], returns='return p limit 5')
-
-        print(cypher_str)
+        return full_query
 
 
 if __name__ == "__main__":
@@ -170,8 +220,8 @@ if __name__ == "__main__":
 
     pas = Parser()
     ass = Assemble(bolt_url, user, password, pas)
-    query = "物料编码包含||20000032大概这样 物料名称哈哈||i18n_0000201673_mid 物料描述||12345上山打老虎 物料编码哈哈||20000031"
+    query = "物料编码包含||20000032大概这样 物料名称哈哈||i18n_0000201673_mid 物料描述||12345上山打老虎"
     print('query: ')
     print(query)
     print('========================')
-    ass.assemble(query)
+    ass._assemble(query)

@@ -37,6 +37,46 @@ for k, v in dicts_nodes.items():
         dicts_rev_nodes[kk] = k
         WORDS.add(kk)
 
+
+FULLTEXT = [
+    'mat_desc',
+    'affiliated_company',
+    'bid_supplier',
+    'contract_creator',
+    'demand_cause',
+    'founder',
+    'header_text',
+    'supplier_name'
+]
+
+CODES = [
+    'batch_code',
+    'bid_code',
+    'bid_num',
+    'contract_code',
+    'contract_no',
+    'facility',
+    'fty_code',
+    'location_code',
+    'mat_code',
+    'mat_group',
+    'mat_name',
+    'move_code',
+    'mrq_code',
+    'mrq_name',
+    'pr_code',
+    'purchase_code',
+    'purchase_group_code',
+    'scode',
+    'stock_input_code',
+    'stock_output_code',
+    'transport_code',
+    'voyage_no',
+    'wh_code',
+    'wh_sys'
+]
+
+
 # 实体属性
 dicts_properties = {
     'mat_desc': ['物料描述', '物资描述', '物料长描述',['Material']],
