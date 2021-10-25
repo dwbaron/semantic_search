@@ -46,7 +46,7 @@ FULLTEXT = [
     'demand_cause',
     'founder',
     'header_text',
-    'supplier_name'
+    'supplier_name',
 ]
 
 CODES = [
@@ -67,13 +67,13 @@ CODES = [
     'pr_code',
     'purchase_code',
     'purchase_group_code',
-    'scode',
     'stock_input_code',
     'stock_output_code',
     'transport_code',
     'voyage_no',
     'wh_code',
-    'wh_sys'
+    'wh_sys',
+    'scode',
 ]
 
 

@@ -41,7 +41,8 @@ REGXS = {
     'demand_time': re.compile(dates),
     'approval_status': re.compile('[A-Z]{4,}'),
     'planned_use_time': re.compile(dates),
-    'mat_desc': re.compile('.*')
+    'mat_desc': re.compile('.*'),
+    'scode': re.compile('[0-9]+[A-Z]+[0-9]+')
     # demand_cause
 
 }

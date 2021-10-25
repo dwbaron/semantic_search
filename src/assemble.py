@@ -13,15 +13,14 @@ from neo4j.exceptions import ServiceUnavailable
 from src.match import Parser
 from src.dicts import dicts_properties, FULLTEXT, CODES
 import re
-
-
+from ase import Atoms
 TEMPLATES = [
     'CALL zdr.index.chineseFulltextIndexSearch("IKAnalyzer", "{prop}:{value}", {num}) YIELD node as {node} with {node} ',  # fulltext search
-    'match p=(n1)-[*2..5]-(n2) ',  # match 2 nodes
-    'match p=(n1)-[*2..5]-(n2)-[*2..5]-(n3) ',  # match 3 nodes
-    'where {conditions} ',  # where conditions
-    'return p limit {num}',  # return path
-    'return {node} limit {num}',  # return node
+    'match p=shortestpath((n1)-[rels*]-(n2)) ',  # match 2 nodes
+    'match p=shortestpath((n1)-[rels1*]-(n2)-[rels2*]-(n3)) ',  # match 3 nodes
+    '{conditions} ',  # where conditions
+    'WITH [r IN rels | [STARTNODE(r), TYPE(r), ENDNODE(r)]] AS steps UNWIND steps AS step RETURN step;',  # return path
+    'return {node}',  # return node
     '{fulltext}{matches}{conditions}{returns}'  # full query
 ]
 
@@ -35,6 +34,7 @@ class Assemble:
         self.wheres = []
         self.no_e = 0  # number of entities
         self.num = 10
+        self.sess = self.driver.session()
 
     def close(self):
         # Don't forget to close the driver connection when you are finished with it
@@ -45,6 +45,17 @@ class Assemble:
             result = sess.read_transaction(self._find_material, mname)
             for row in result:
                 print("find person: {row}".format(row=row))
+
+    def _search_query(self, query):
+        result = self.sess.run(query)
+        return [row for row in result]
+
+    def search_query(self, query):
+        result = self._search_query(query)
+        for r in result:
+            print('='*40)
+            print(r[0][0].__dict__['_properties'], r[0][1], r[0][2].__dict__['_properties'])
+
 
     @staticmethod
     def _find_material(tx, mname):
@@ -71,17 +82,18 @@ class Assemble:
                 _n = 'n' + str(no_e)
                 if not conditions:
                     if pv[0] in CODES:
-                        conditions += '{}.{} contains {} '.format(_n, pv[0], pv[1])
+                        conditions += "{}.{} contains '{}' ".format(_n, pv[0], pv[1])
                     else:
                         conditions += '{}.{} = {} '.format(_n, pv[0], pv[1])
                 else:
                     conditions += 'AND '
                     if pv[0] in CODES:
-                        conditions += '{}.{} contains {} '.format(_n, pv[0], pv[1])
+                        conditions += "{}.{} contains '{}' ".format(_n, pv[0], pv[1])
                     else:
                         conditions += '{}.{} = {} '.format(_n, pv[0], pv[1])
             FULL_TEXTS.append(fulltext)
-        CONDITIONS.append(conditions)
+        if conditions:
+            CONDITIONS.append(conditions)
         # 重置状态
         self.has_seen = set()
 
@@ -139,7 +151,6 @@ class Assemble:
             r = RES.pop(0)
             # 当前属性
             _p = r[0]
-
             _value = dicts_properties[_p]
             # 当前实体
             current_entity = _value[-1]
@@ -154,21 +165,7 @@ class Assemble:
             # 并非重复属性
             if _p not in self.has_seen:
                 self.has_seen.add(_p)
-
-            else:
-                # 同一类实体但是属性名称重复，说明是另一个同类实体
-                self.no_e += 1
-                if current_entity == prev_entity or set(prev_entity).issubset(set(current_entity)):
-                    # _ = self.str_combine(prev_entity, prev_props[:-1], entities, wheres, self.no_e)
-                    self.str_combine2(prev_entity, prev_props[:-1], FULL_TEXTS, CONDITIONS, no_e=self.no_e)
-                    # 重置状态
-                    prev_props = prev_props[-1]
-                    if not RES:
-                        self.no_e += 1
-                        # _ = self.str_combine(current_entity, [prev_props], entities, wheres, self.no_e)
-                        self.str_combine2(prev_entity, [prev_props], FULL_TEXTS, CONDITIONS, no_e=self.no_e)
-                    continue
-                else:
+                if current_entity != prev_entity:
                     # 非同一实体，则触发拼接
                     self.no_e += 1
                     # _ = self.str_combine(prev_entity, prev_props[:-1], entities, wheres, self.no_e)
@@ -180,22 +177,44 @@ class Assemble:
                         self.no_e += 1
                         # _ = self.str_combine(current_entity, [prev_props], entities, wheres, self.no_e)
                         self.str_combine2(prev_entity, [prev_props], FULL_TEXTS, CONDITIONS, no_e=self.no_e)
+
+            else:
+                if current_entity == prev_entity or set(prev_entity).issubset(set(current_entity)):
+                    # 同一类实体但是属性名称重复，说明是另一个同类实体
+                    self.no_e += 1
+                    # _ = self.str_combine(prev_entity, prev_props[:-1], entities, wheres, self.no_e)
+                    self.str_combine2(prev_entity, prev_props[:-1], FULL_TEXTS, CONDITIONS, no_e=self.no_e)
+                    # 重置状态
+                    prev_props = prev_props[-1]
+                    if not RES:
+                        self.no_e += 1
+                        # _ = self.str_combine(current_entity, [prev_props], entities, wheres, self.no_e)
+                        self.str_combine2(prev_entity, [prev_props], FULL_TEXTS, CONDITIONS, no_e=self.no_e)
                     continue
-            if not RES:
-                self.no_e += 1
-                # _ = self.str_combine(current_entity, prev_props, entities, wheres, self.no_e)
-                self.str_combine2(prev_entity, prev_props, FULL_TEXTS, CONDITIONS, no_e=self.no_e)
 
-        if self.no_e == 1:
-            RETURNS = TEMPLATES[5].format(node='n' + str(self.no_e), num=self.num)
-        elif self.no_e == 2:
-            RETURNS = TEMPLATES[4].format(num=self.num)
+            # if not RES:
+            #     self.no_e += 1
+            #     # _ = self.str_combine(current_entity, prev_props, entities, wheres, self.no_e)
+            #     self.str_combine2(prev_entity, prev_props, FULL_TEXTS, CONDITIONS, no_e=self.no_e)
+
+        RETURNS = TEMPLATES[4]
+
+        # if self.no_e == 1:
+        #     RETURNS = TEMPLATES[5].format(node='n' + str(self.no_e), num=self.num)
+        if self.no_e == 2:
             MATCHES = TEMPLATES[1]
-        else:
-            RETURNS = TEMPLATES[4].format(num=self.num)
-            MATCHES = TEMPLATES[2]
+        #     RETURNS = TEMPLATES[4].format(','.join(['n' + str(i) for i in range(1, self.no_e + 1)]),
+        #                                   num=self.num)
 
-        CONDITIONS = TEMPLATES[3].format(conditions='AND '.join(CONDITIONS))
+        elif self.no_e > 2:
+            MATCHES = TEMPLATES[2]
+        #     RETURNS = TEMPLATES[4].format(','.join(['n' + str(i) for i in range(1, self.no_e + 1)]),
+        #                                   num=self.num)
+
+        if CONDITIONS == []:
+            CONDITIONS = ''
+        else:
+            CONDITIONS = 'where ' + TEMPLATES[3].format(conditions='AND '.join(CONDITIONS))
         # print(entities)
         # print(wheres)
         full_query = TEMPLATES[-1].format(
@@ -204,7 +223,6 @@ class Assemble:
             conditions=CONDITIONS,
             returns=RETURNS
         )
-
         print(full_query)
 
         return full_query
@@ -220,8 +238,9 @@ if __name__ == "__main__":
 
     pas = Parser()
     ass = Assemble(bolt_url, user, password, pas)
-    query = "物料编码包含||20000032大概这样 物料名称哈哈||i18n_0000201673_mid 物料描述||12345上山打老虎"
+    query = "库存编码||20725181JDW3 物料描述||油漆笔12支"
     print('query: ')
     print(query)
     print('========================')
-    ass._assemble(query)
+    q = ass._assemble(query)
+    ass.search_query(q)
